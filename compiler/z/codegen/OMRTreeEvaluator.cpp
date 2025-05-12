@@ -2606,6 +2606,7 @@ genLoadAddressConstant(TR::CodeGenerator * cg, TR::Node * node, uintptr_t value,
          comp->getStaticHCRPICSites()->push_front(cursor);
          }
 
+#if defined(TR_TARGET_64BIT)
       TR_ASSERT(!isCompressedClassPointer || ((value & CONSTANT64(0xFFFFFFFF00000000)) == 0), "Compressed class pointers are assumed to fit in 32 bits");
       // IIHF is only needed when addresses do not fit into 32 bits and LARL could not be used
       if (!usedLARL && comp->target().is64Bit() && !isCompressedClassPointer)
@@ -2614,6 +2615,7 @@ genLoadAddressConstant(TR::CodeGenerator * cg, TR::Node * node, uintptr_t value,
          uint32_t high32 = static_cast<uint32_t>(value >> 32);
          cursor = generateRILInstruction(cg, TR::InstOpCode::IIHF, node, targetRegister, high32, cursor);
          }
+#endif /* defined(TR_TARGET_64BIT) */
 
       return cursor;
       }
@@ -7924,9 +7926,9 @@ OMR::Z::TreeEvaluator::axaddEvaluator(TR::Node * node, TR::CodeGenerator * cg)
    TR::Node * firstChild = node->getFirstChild();
    TR::MemoryReference * axaddMR = generateS390MemoryReference(cg);
    TR::InstOpCode::Mnemonic loadOp;
-   static const bool disableLXAaxaddZNext = feGetEnv("TR_disableLXAaxaddZNext") != NULL;
+   static const bool disableLXAaxaddZ17 = feGetEnv("TR_disableLXAaxaddZ17") != NULL;
 
-   axaddMR->populateAddTree(node, cg, &loadOp, !disableLXAaxaddZNext && cg->getUseLXAInstructions());
+   axaddMR->populateAddTree(node, cg, &loadOp, !disableLXAaxaddZ17 && cg->getUseLXAInstructions());
    axaddMR->eliminateNegativeDisplacement(node, cg);
    axaddMR->enforceDisplacementLimit(node, cg, NULL);
 
@@ -8545,10 +8547,10 @@ OMR::Z::TreeEvaluator::inlineNumberOfTrailingZeros(TR::Node *node, TR::CodeGener
    TR::Register *tempReg = cg->allocateRegister();
    TR::Register *returnReg = NULL;
    bool isLong = (subfconst == 64);
-   static const bool disableTrailZeroZNext = feGetEnv("TR_disableTrailZeroZNext") != NULL;
+   static const bool disableTrailZeroZ17 = feGetEnv("TR_disableTrailZeroZ17") != NULL;
    static const bool canEmulateCTZG = TR::InstOpCode(TR::InstOpCode::CTZG).canEmulate();
 
-   if ((cg->comp()->target().cpu.isAtLeast(OMR_PROCESSOR_S390_ZNEXT) || canEmulateCTZG) && !disableTrailZeroZNext)
+   if ((cg->comp()->target().cpu.isAtLeast(OMR_PROCESSOR_S390_Z17) || canEmulateCTZG) && !disableTrailZeroZ17)
       {
       argReg = cg->gprClobberEvaluate(argNode);
       if (!(isLong))
@@ -8668,10 +8670,10 @@ OMR::Z::TreeEvaluator::inlineNumberOfLeadingZeros(TR::Node *node, TR::CodeGenera
    TR::Node *argNode = node->getChild(0);
    TR::Register *argReg = cg->gprClobberEvaluate(argNode);
    TR::Register *returnReg = NULL;
-   static const bool disableLeadZeroZNext = feGetEnv("TR_disableLeadZeroZNext") != NULL;
+   static const bool disableLeadZeroZ17 = feGetEnv("TR_disableLeadZeroZ17") != NULL;
    static const bool canEmulateCLZG = TR::InstOpCode(TR::InstOpCode::CLZG).canEmulate();
 
-   if ((cg->comp()->target().cpu.isAtLeast(OMR_PROCESSOR_S390_ZNEXT) || canEmulateCLZG) && !disableLeadZeroZNext)
+   if ((cg->comp()->target().cpu.isAtLeast(OMR_PROCESSOR_S390_Z17) || canEmulateCLZG) && !disableLeadZeroZ17)
       {
       // The leading zeros instruction assumes input data to be 64-bit. So we left shift it to zero out the
       // invalid higher order bits if the data type is initially smaller than 64-bits.

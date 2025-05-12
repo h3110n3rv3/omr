@@ -977,11 +977,29 @@ MM_Scavenger::calcGCStats(MM_EnvironmentStandard *env)
 {
 	/* Do not calculate stats unless we actually collected */
 	if (canCalcGCStats(env)) {
-		MM_ScavengerStats *scavengerGCStats;
-		scavengerGCStats = &_extensions->scavengerStats;
+		MM_ScavengerStats *scavengerGCStats = &_extensions->scavengerStats;
 		uintptr_t initialFree = env->_cycleState->_activeSubSpace->getActualActiveFreeMemorySize();
 		uintptr_t tenureAggregateBytes = 0;
 		float tenureBytesDeviation = 0;
+		uintptr_t survivorAllocated = 0;
+
+		if (IS_CONCURRENT_ENABLED) {
+			/* InitialFree is more precisely intended to represent the amount of
+ 			 * memory predicted to be allocated between two cycles, which is later
+ 			 * used for CM kickoff. For a simple STW Scavenge, it is indeed just the
+  			 * initial free memory at the start of the allocation phase (end of a
+  			 * cycle). However, for Concurrent Scavenge (CS), we also have to account
+ 			 * for memory allocated during the active CS cycle (allocated from the
+  			 * survivor/allocate hybrid area). While InitialFree is based on predicted
+  			 * future allocation, survivorAllocated represents what was actually
+  			 * allocated in the just-completed cycle, since we cannot predict how much
+  			 * will be allocated (due to other allocations by GC). That one-cycle-off
+  			 * difference should be acceptable, as we historically average these values
+  			 * over a span of a few cycles anyway.
+  			 */
+			survivorAllocated = _extensions->allocationStats.bytesAllocated();
+			initialFree += survivorAllocated;
+		}
 
 		/* First collection  ? */
 		if (scavengerGCStats->_gcCount > 1 ) {
@@ -1011,11 +1029,15 @@ MM_Scavenger::calcGCStats(MM_EnvironmentStandard *env)
 #if defined(OMR_GC_MODRON_CONCURRENT_MARK)
 			if (_extensions->debugConcurrentMark) {
 				OMRPORT_ACCESS_FROM_OMRPORT(env->getPortLibrary());
-            	omrtty_printf("Tenured bytes: %zu\navgTenureBytes: %zu\ntenureBytesDeviation: %f\navgTenureBytesDeviation: %zu\n",
-				tenureAggregateBytes,
-				scavengerGCStats->_avgTenureBytes,
-				tenureBytesDeviation,
-				scavengerGCStats->_avgTenureBytesDeviation);
+				omrtty_printf(
+					"Tenured bytes: %zu\navgTenureBytes: %zu\ntenureBytesDeviation: %f\navgTenureBytesDeviation: %zu\ninitialFree: %zu\nsurvivorAllocated: %zu\navgInitialFree: %zu\n",
+					tenureAggregateBytes,
+					scavengerGCStats->_avgTenureBytes,
+					tenureBytesDeviation,
+					scavengerGCStats->_avgTenureBytesDeviation,
+					initialFree,
+					survivorAllocated,
+					scavengerGCStats->_avgInitialFree);
 			}
 #endif /* OMR_GC_MODRON_CONCURRENT_MARK */
 	}
@@ -4582,7 +4604,7 @@ MM_Scavenger::internalPreCollect(MM_EnvironmentBase *env, MM_MemorySubSpace *sub
 		 * conducted to free up as much space as possible
 		 */
 		if (!_cycleState._gcCode.isExplicitGC()) {
-			if(excessive_gc_normal != _extensions->excessiveGCLevel) {
+			if (excessive_gc_normal != _extensions->excessiveGCLevel) {
 				/* convert the current mode to excessive GC mode */
 				_cycleState._gcCode = MM_GCCode(J9MMCONSTANT_IMPLICIT_GC_EXCESSIVE);
 			}
@@ -4594,9 +4616,11 @@ MM_Scavenger::internalPreCollect(MM_EnvironmentBase *env, MM_MemorySubSpace *sub
  * Perform any post-collection work as requested by the garbage collection invoker.
  */
 void
-MM_Scavenger::internalPostCollect(MM_EnvironmentBase *env, MM_MemorySubSpace *subSpace)
+MM_Scavenger::internalPostCollect(MM_EnvironmentBase *envBase, MM_MemorySubSpace *subSpace)
 {
-	calcGCStats((MM_EnvironmentStandard*)env);
+	MM_EnvironmentStandard *env = MM_EnvironmentStandard::getEnvironment(envBase);
+
+	calcGCStats(env);
 
 	Assert_MM_true(env->_cycleState == &_cycleState);
 
@@ -4616,8 +4640,8 @@ MM_Scavenger::internalPostCollect(MM_EnvironmentBase *env, MM_MemorySubSpace *su
 bool
 MM_Scavenger::internalGarbageCollect(MM_EnvironmentBase *envBase, MM_MemorySubSpace *subSpace, MM_AllocateDescription *allocDescription)
 {
-	MM_EnvironmentStandard *env = (MM_EnvironmentStandard *)envBase;
-	MM_ScavengerStats *scavengerGCStats= &_extensions->scavengerStats;
+	MM_EnvironmentStandard *env = MM_EnvironmentStandard::getEnvironment(envBase);
+	MM_ScavengerStats *scavengerGCStats = &_extensions->scavengerStats;
 	MM_MemorySubSpaceSemiSpace *subSpaceSemiSpace = (MM_MemorySubSpaceSemiSpace *)subSpace;
 	MM_MemorySubSpace *tenureMemorySubSpace = subSpaceSemiSpace->getTenureMemorySubSpace();
 
@@ -5595,8 +5619,6 @@ MM_Scavenger::scavengeIncremental(MM_EnvironmentBase *env)
 
 			_concurrentPhase = concurrent_phase_complete;
 
-			mergeIncrementGCStats(env, false);
-			clearIncrementGCStats(env, false);
 			continue;
 		}
 
@@ -5849,14 +5871,19 @@ MM_Scavenger::triggerConcurrentScavengerTransition(MM_EnvironmentBase *env, MM_A
 }
 
 void
-MM_Scavenger::completeConcurrentCycle(MM_EnvironmentBase *env)
+MM_Scavenger::completeConcurrentCycle(MM_EnvironmentBase *env, MM_MemorySubSpace *subSpace, MM_AllocateDescription *allocDescription, uint32_t gcCode)
 {
-	/* this is supposed to be called by an external cycle (for example ConcurrentGC, STW phase)
-	 * that is just to be started, but cannot before Scavenger is complete */
+	/* This is supposed to be called by an external cycle (for example ConcurrentGC, STW phase)
+	 * that is just to be started, but cannot before Scavenger is complete.
+	 * On this path, calling subSpace is Generational (while typically Scavenger::postCollect would be called from SemiSpace).
+	 */
 	Assert_MM_true(NULL == env->_cycleState);
 	if (isConcurrentCycleInProgress()) {
-		env->_cycleState = &_cycleState;
-		triggerConcurrentScavengerTransition(env, NULL);
+		internalPreCollect(env, subSpace, allocDescription, gcCode);
+
+		triggerConcurrentScavengerTransition(env, allocDescription);
+
+		internalPostCollect(env, subSpace);
 		env->_cycleState = NULL;
 	}
 }
