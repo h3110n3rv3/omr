@@ -677,6 +677,46 @@ public:
     */
    bool supportsFPAbs() { return true; }
 
+   /**
+    * @brief Answers whether bcompress/scompress/icompress evaluators are available or not
+    * @return true if bcompress/scompress/icompress evaluators are available
+    */
+   bool getSupports32BitCompress() { return _flags4.testAny(Supports32BitCompress); }
+   /**
+    * @brief The code generator supports the bcompress/scompress/icompress evaluators
+    */
+   void setSupports32BitCompress() { _flags4.set(Supports32BitCompress); }
+
+   /**
+    * @brief Answers whether lcompress evaluator is available or not
+    * @return true if lcompress evaluator is available
+    */
+   bool getSupports64BitCompress() { return _flags4.testAny(Supports64BitCompress); }
+   /**
+    * @brief The code generator supports the lcompress evaluator
+    */
+   void setSupports64BitCompress() { _flags4.set(Supports64BitCompress); }
+
+   /**
+    * @brief Answers whether bexpand/sexpand/iexpand evaluators are available or not
+    * @return true if bexpand/sexpand/iexpand evaluators are available
+    */
+   bool getSupports32BitExpand() { return _flags4.testAny(Supports32BitExpand); }
+   /**
+    * @brief The code generator supports the bexpand/sexpand/iexpand evaluators
+    */
+   void setSupports32BitExpand() { _flags4.set(Supports32BitExpand); }
+
+   /**
+    * @brief Answers whether lexpand evaluator is available or not
+    * @return true if lexpand evaluator is available
+    */
+   bool getSupports64BitExpand() { return _flags4.testAny(Supports64BitExpand); }
+   /**
+    * @brief The code generator supports the lexpand evaluator
+    */
+   void setSupports64BitExpand() { _flags4.set(Supports64BitExpand); }
+
    // --------------------------------------------------------------------------
    // Optimizer, not code generator
    //
@@ -701,6 +741,19 @@ public:
    bool branchesAreExpensive() { return true; }
    bool opCodeIsNoOp(TR::ILOpCode &opCode);
    bool opCodeIsNoOpOnThisPlatform(TR::ILOpCode &opCode) {return false;}
+
+   /**
+    * @brief Determines whether integer multiplication decomposition should be deferred to the code generator.
+    *
+    * This function indicates if the decomposition of integer multiplication operations should
+    * be handled by the code generator instead of the optimizer (tree simplifier). Each architecture's
+    * code generator provides its own implementation of this function. By default, this function
+    * returns `false`, meaning that decomposition is not deferred to the code generator and the
+    * optimizer will attempt to simplify.
+    *
+    * @return true if integer multiplication decomposition should be deferred to the code generator, otherwise false.
+    */
+   bool doIntMulDecompositionInCG() { return false; };
 
    bool supportsSinglePrecisionSQRT() {return false;}
    bool supportsFusedMultiplyAdd() {return false;}
@@ -2000,10 +2053,10 @@ public:
 
    enum // flags4
       {
-      // AVAILABLE                                        = 0x00000001,
-      // AVAILABLE                                        = 0x00000002,
-      // AVAILABLE                                        = 0x00000004,
-      // AVAILABLE                                        = 0x00000008,
+      Supports32BitCompress                               = 0x00000001,
+      Supports64BitCompress                               = 0x00000002,
+      Supports32BitExpand                                 = 0x00000004,
+      Supports64BitExpand                                 = 0x00000008,
       // AVAILABLE                                        = 0x00000010,
       IsInOOLSection                                      = 0x00000020,
       // AVAILABLE                                        = 0x00000040,

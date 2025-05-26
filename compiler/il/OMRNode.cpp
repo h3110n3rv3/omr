@@ -3873,6 +3873,7 @@ OMR::Node::createStoresForVar(TR::SymbolReference * &nodeRef, TR::TreeTop *inser
          self()->setIsInternalPointer(true);
 
       TR::Node *child = NULL;
+      bool updateBaseArray = self()->getReferenceCount() == 1;
 
       if (isInternalPointer)
          {
@@ -3885,7 +3886,10 @@ OMR::Node::createStoresForVar(TR::SymbolReference * &nodeRef, TR::TreeTop *inser
             else
                {
                while (child->getOpCode().isArrayRef())
+                  {
+                  if (child->getReferenceCount() > 1) updateBaseArray = false;
                   child = child->getFirstChild();
+                  }
 
                if (child->getOpCode().isLoadVarDirect() &&
                    child->getSymbolReference()->getSymbol()->isAuto())
@@ -3913,7 +3917,7 @@ OMR::Node::createStoresForVar(TR::SymbolReference * &nodeRef, TR::TreeTop *inser
                   newArrayRef->getSymbol()->setPinningArrayPointer();
                   pinningArray = newArrayRef->getSymbol()->castToAutoSymbol();
 
-                  if (child->isDataAddrPointer())
+                  if (child->isDataAddrPointer() && updateBaseArray)
                      {
                      arrayLoadNode = TR::Node::createLoad(arrayObjectNode, newArrayRef);
                      child->setAndIncChild(0, arrayLoadNode);
@@ -7559,26 +7563,6 @@ OMR::Node::setIsBigDecimalLoad()
    TR_ASSERT(self()->getOpCodeValue() == TR::lloadi, "assertion failure");
    _flags.set(bigDecimal_load);
    }
-
-
-
-bool
-OMR::Node::shouldAlignTLHAlloc()
-   {
-   TR_ASSERT(self()->getOpCodeValue() == TR::New, "Opcode value must be TR::New");
-   return _flags.testAny(alignTLHAlloc);
-   }
-
-void
-OMR::Node::setAlignTLHAlloc(bool v)
-   {
-   TR::Compilation * c = TR::comp();
-   TR_ASSERT(self()->getOpCodeValue() == TR::New, "Opcode value must be TR::New");
-   if (performNodeTransformation2(c, "O^O NODE FLAGS: Setting align on TLH flag on node %p to %d\n", self(), v))
-      _flags.set(alignTLHAlloc, v);
-   }
-
-
 
 bool
 OMR::Node::isCopyToNewVirtualRegister()
