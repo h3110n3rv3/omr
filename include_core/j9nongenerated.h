@@ -199,6 +199,12 @@ typedef struct J9MemorySegment {
 #define MEMORY_TYPE_DEFAULT                 0x2000000
 #define MEMORY_TYPE_FROM_JXE                0x4000000
 #define MEMORY_TYPE_SHARED_META             0x8000000
+
+/* Extended memory types – they include the original base value */
+#define MEMORY_TYPE_RAM_CLASS_SUB4G      (MEMORY_TYPE_RAM_CLASS | 0x01000000)  
+#define MEMORY_TYPE_RAM_CLASS_FREQUENT   (MEMORY_TYPE_RAM_CLASS | 0x02000000)  
+#define MEMORY_TYPE_RAM_CLASS_INFREQUENT (MEMORY_TYPE_RAM_CLASS | 0x04000000)  
+
 /* On Linux, memory marked as MEMORY_TYPE_DISCLAIMABLE_TO_FILE can be disclaimed
  * to a backing file with madvise().
  */
